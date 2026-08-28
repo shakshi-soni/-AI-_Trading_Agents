@@ -1,0 +1,29 @@
+# Alpaca — market data, options, execution
+alpaca-py>=0.33.0
+
+# LLM
+groq>=0.11.0
+google-generativeai>=0.8.0
+
+# Schemas / validation
+pydantic>=2.9.0
+
+# Dashboard
+streamlit>=1.38.0
+plotly>=5.24.0
+
+# Config / environment
+python-dotenv>=1.0.1
+
+# Data
+pandas>=2.2.0
+numpy>=1.26.0
+
+# Technical indicators
+ta>=0.11.0
+
+# HTTP
+requests>=2.32.0
+
+# Date handling
+python-dateutil>=2.9.0
