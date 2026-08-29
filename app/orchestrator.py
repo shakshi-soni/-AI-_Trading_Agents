@@ -59,50 +59,58 @@ class Orchestrator:
         market_analysis = self.market_agent.analyze(ticker)
 
         # --- Stage 2: Strategy Agent ---
-        # A non-bullish call is a valid, expected outcome (not an error) —
-        # the pipeline simply stops here with no trade proposed.
+        # A non-bullish call is one reason this can stop here, but it is
+        # NOT the only reason — a malformed/invalid LLM response for the
+        # strategy step also raises StrategyAgentError. We always persist
+        # the real exception text as stop_reason so the UI never has to
+        # guess why no trade was proposed.
         try:
             trade_proposal = self.strategy_agent.propose(market_analysis, quantity=quantity)
         except StrategyAgentError as e:
-            run_id = self.audit_logger.log_run(market_analysis=market_analysis)
+            summary = f"No trade proposed: {e}"
+            run_id = self.audit_logger.log_run(market_analysis=market_analysis, stop_reason=summary)
             return PipelineResult(
                 run_id=run_id,
                 stage_reached="market",
                 executed=False,
-                summary=f"No trade proposed: {e}",
+                summary=summary,
             )
 
         # --- Stage 3: Adversarial Agent ---
         adversarial_report = self.adversarial_agent.attack(trade_proposal, market_analysis)
 
         if adversarial_report.verdict == AdversarialVerdict.REJECT:
+            summary = f"Trade rejected by adversarial agent: {adversarial_report.reasoning}"
             run_id = self.audit_logger.log_run(
                 market_analysis=market_analysis,
                 trade_proposal=trade_proposal,
                 adversarial_report=adversarial_report,
+                stop_reason=summary,
             )
             return PipelineResult(
                 run_id=run_id,
                 stage_reached="adversarial",
                 executed=False,
-                summary=f"Trade rejected by adversarial agent: {adversarial_report.reasoning}",
+                summary=summary,
             )
 
         # --- Stage 4: Risk Engine ---
         risk_decision = self.risk_engine.evaluate(trade_proposal)
 
         if risk_decision.verdict == RiskVerdict.FAIL:
+            summary = f"Trade rejected by risk engine: {risk_decision.reason}"
             run_id = self.audit_logger.log_run(
                 market_analysis=market_analysis,
                 trade_proposal=trade_proposal,
                 adversarial_report=adversarial_report,
                 risk_decision=risk_decision,
+                stop_reason=summary,
             )
             return PipelineResult(
                 run_id=run_id,
                 stage_reached="risk",
                 executed=False,
-                summary=f"Trade rejected by risk engine: {risk_decision.reason}",
+                summary=summary,
             )
 
         # --- Stage 5: Execution ---
@@ -123,19 +131,20 @@ class Orchestrator:
             realized_loss = 0.0  # unrealized at fill time; loss only realized on close
             self.risk_engine.record_trade_executed(realized_pnl=realized_loss)
 
+        executed = execution_result.status == ExecutionStatus.FILLED
+        summary = (
+            f"Trade executed: {execution_result.detail}"
+            if executed
+            else f"Trade approved but did not fill: {execution_result.detail}"
+        )
+
         run_id = self.audit_logger.log_run(
             market_analysis=market_analysis,
             trade_proposal=trade_proposal,
             adversarial_report=adversarial_report,
             risk_decision=risk_decision,
             execution_result=execution_result,
-        )
-
-        executed = execution_result.status == ExecutionStatus.FILLED
-        summary = (
-            f"Trade executed: {execution_result.detail}"
-            if executed
-            else f"Trade approved but did not fill: {execution_result.detail}"
+            stop_reason=summary,
         )
 
         return PipelineResult(

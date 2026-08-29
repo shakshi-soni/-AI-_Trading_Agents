@@ -1,10 +1,11 @@
 """
 Sentinel Dashboard.
 
-Single-page Streamlit UI for the Adversarial Options Trader. Shows
-the full decision trail for a pipeline run — market read, proposed
-trade, adversarial challenge, risk decision, and execution result —
-plus a sidebar to trigger new runs and browse past ones.
+Single-page Streamlit UI for the Adversarial Options Trader. Shows a
+header status bar, a pipeline stepper (Market -> Strategy -> Adversary
+-> Risk -> Execution), a hero "Final Decision" card, and the full
+decision trail underneath. Sidebar lets you trigger new runs and
+browse past ones.
 """
 
 import os
@@ -12,8 +13,11 @@ import sys
 from pathlib import Path
 
 import streamlit as st
+from dotenv import load_dotenv
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+load_dotenv(PROJECT_ROOT / ".env")
 
 from app.audit.audit_logger import AuditLogger
 from app.main import ConfigError, SUPPORTED_LLM_PROVIDERS, build_orchestrator
@@ -40,24 +44,99 @@ st.markdown(
             --sage-bg: #EEF2E8;
             --terracotta: #C1694F;
             --terracotta-bg: #FBEAE3;
+            --muted: #B5A99B;
         }
 
-        .stApp {
-            background-color: var(--nude-bg);
-        }
+        .stApp { background-color: var(--nude-bg); }
 
-        .sentinel-header {
-            font-size: 2.1rem;
-            font-weight: 700;
+        /* --- Top status bar --- */
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.9rem 1.4rem;
+            background-color: var(--nude-card);
+            border: 1px solid var(--nude-border);
+            border-radius: 14px;
+            margin-bottom: 1.2rem;
+        }
+        .topbar-left { display: flex; flex-direction: column; }
+        .topbar-title {
+            font-size: 1.4rem;
+            font-weight: 800;
             color: var(--nude-text);
-            margin-bottom: 0.1rem;
+            letter-spacing: 0.01em;
         }
-        .sentinel-subheader {
-            font-size: 0.95rem;
-            color: #8A7A6D;
-            margin-bottom: 1.6rem;
+        .topbar-subtitle { font-size: 0.82rem; color: #8A7A6D; }
+        .topbar-right { display: flex; gap: 0.7rem; }
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.32rem 0.85rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            background-color: var(--sage-bg);
+            color: var(--sage);
         }
+        .status-pill.off { background-color: #F1EDE7; color: var(--muted); }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background-color: var(--sage);
+            display: inline-block;
+        }
+        .status-dot.off { background-color: var(--muted); }
 
+        /* --- Ticker price row --- */
+        .ticker-row {
+            display: flex;
+            align-items: baseline;
+            gap: 1.2rem;
+            margin-bottom: 1rem;
+        }
+        .ticker-symbol { font-size: 1.6rem; font-weight: 800; color: var(--nude-text); }
+        .ticker-price { font-size: 1.6rem; font-weight: 700; color: var(--nude-text); }
+        .ticker-meta { font-size: 0.8rem; color: #A0917F; margin-left: auto; text-align: right; }
+
+        /* --- Pipeline stepper --- */
+        .stepper {
+            display: flex;
+            justify-content: space-between;
+            background-color: var(--nude-card);
+            border: 1px solid var(--nude-border);
+            border-radius: 14px;
+            padding: 0.9rem 1.4rem;
+            margin-bottom: 1.2rem;
+        }
+        .step { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; flex: 1; }
+        .step-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; color: #A0917F; }
+        .step-icon { font-size: 1.15rem; font-weight: 800; }
+        .step-icon.ok { color: var(--sage); }
+        .step-icon.bad { color: var(--terracotta); }
+        .step-icon.pending { color: var(--muted); }
+
+        /* --- Hero decision card --- */
+        .hero-card {
+            border-radius: 16px;
+            padding: 1.6rem 1.8rem;
+            margin-bottom: 1.2rem;
+            text-align: center;
+            border: 1px solid var(--nude-border);
+        }
+        .hero-approved { background-color: var(--sage-bg); border-color: var(--sage); }
+        .hero-rejected { background-color: var(--terracotta-bg); border-color: var(--terracotta); }
+        .hero-neutral { background-color: var(--nude-card); }
+        .hero-label { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em; color: #A0917F; margin-bottom: 0.3rem; }
+        .hero-verdict { font-size: 1.55rem; font-weight: 800; margin-bottom: 0.5rem; }
+        .hero-verdict.ok { color: var(--sage); }
+        .hero-verdict.bad { color: var(--terracotta); }
+        .hero-verdict.neutral { color: var(--nude-text); }
+        .hero-strategy { font-size: 1rem; color: var(--nude-text); margin-bottom: 0.3rem; }
+        .hero-rr { font-size: 0.92rem; color: #8A7A6D; }
+
+        /* --- Stage cards --- */
         .stage-card {
             background-color: var(--nude-card);
             border: 1px solid var(--nude-border);
@@ -67,54 +146,33 @@ st.markdown(
             box-shadow: 0 2px 6px rgba(74, 59, 50, 0.05);
         }
         .stage-title {
-            font-size: 0.78rem;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: var(--nude-accent);
-            margin-bottom: 0.5rem;
+            font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--nude-accent); margin-bottom: 0.6rem;
         }
-        .stage-empty {
-            color: #B5A99B;
-            font-style: italic;
-            font-size: 0.92rem;
-        }
+        .stage-empty { color: var(--muted); font-style: italic; font-size: 0.92rem; }
 
         .badge {
-            display: inline-block;
-            padding: 0.22rem 0.75rem;
-            border-radius: 999px;
-            font-size: 0.8rem;
-            font-weight: 600;
+            display: inline-block; padding: 0.22rem 0.75rem; border-radius: 999px;
+            font-size: 0.8rem; font-weight: 700;
         }
-        .badge-good {
-            background-color: var(--sage-bg);
-            color: var(--sage);
-        }
-        .badge-bad {
-            background-color: var(--terracotta-bg);
-            color: var(--terracotta);
-        }
+        .badge-good { background-color: var(--sage-bg); color: var(--sage); }
+        .badge-bad { background-color: var(--terracotta-bg); color: var(--terracotta); }
 
-        .metric-row {
-            display: flex;
-            gap: 2rem;
-            margin-top: 0.4rem;
-        }
-        .metric-label {
-            font-size: 0.75rem;
-            color: #A0917F;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-        .metric-value {
-            font-size: 1.15rem;
-            font-weight: 600;
-            color: var(--nude-text);
-        }
+        .metric-label { font-size: 0.72rem; color: #A0917F; text-transform: uppercase; letter-spacing: 0.05em; }
+        .metric-value { font-size: 1.1rem; font-weight: 700; color: var(--nude-text); }
 
-        section[data-testid="stSidebar"] {
-            background-color: #F3E9DD;
+        .leg-row { font-size: 0.95rem; color: var(--nude-text); margin: 0.15rem 0; }
+        .leg-buy { color: var(--sage); font-weight: 700; }
+        .leg-sell { color: var(--terracotta); font-weight: 700; }
+
+        .risk-row { font-size: 0.9rem; margin: 0.3rem 0; }
+        .risk-ok::before { content: "✓  "; color: var(--sage); font-weight: 800; }
+        .risk-bad::before { content: "✗  "; color: var(--terracotta); font-weight: 800; }
+
+        section[data-testid="stSidebar"] { background-color: #F3E9DD; }
+        .sidebar-section-title {
+            font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: #8A7A6D; margin: 0.6rem 0 0.3rem 0;
         }
     </style>
     """,
@@ -138,13 +196,19 @@ def get_watchlist() -> list[str]:
     return symbols or ["SPY"]
 
 
+def short_id(run_id: str) -> str:
+    """Shorten run_<hex> -> #<first 4 hex chars uppercased>, matching the mockup's compact style."""
+    tail = run_id.replace("run_", "")
+    return f"#{tail[:4].upper()}" if tail else run_id
+
+
 # ---------------------------------------------------------------------------
-# Sidebar
+# Sidebar — CONTROL
 # ---------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🛡️ Sentinel")
     st.caption("Adversarial Options Trader")
-    st.divider()
+    st.markdown('<div class="sidebar-section-title">Control</div>', unsafe_allow_html=True)
 
     ticker = st.selectbox("Ticker", options=get_watchlist(), key="ticker_select")
     quantity = st.number_input("Quantity", min_value=1, max_value=20, value=1, step=1, key="quantity_input")
@@ -152,19 +216,15 @@ with st.sidebar:
 
     run_clicked = st.button("▶  Run Analysis", use_container_width=True, key="run_button")
 
-    st.divider()
-    st.markdown("**Recent Runs**")
+    st.markdown('<div class="sidebar-section-title">Recent Runs</div>', unsafe_allow_html=True)
 
     run_ids = audit_logger.list_runs()
     if run_ids:
-        chosen = st.selectbox(
-            "Browse past runs",
-            options=run_ids,
-            key="recent_run_select",
-            label_visibility="collapsed",
-        )
-        if chosen:
-            st.session_state.selected_run_id = chosen
+        for rid in run_ids[:10]:
+            is_selected = rid == st.session_state.selected_run_id
+            label = f"{'●' if is_selected else '○'} {short_id(rid)}"
+            if st.button(label, key=f"recent_{rid}", use_container_width=True):
+                st.session_state.selected_run_id = rid
     else:
         st.caption("No runs yet.")
 
@@ -184,11 +244,33 @@ if run_clicked:
             st.session_state.last_error = f"Pipeline run failed: {e}"
 
 # ---------------------------------------------------------------------------
-# Header
+# Top status bar
 # ---------------------------------------------------------------------------
-st.markdown('<div class="sentinel-header">🛡️ Sentinel — Adversarial Options Trader</div>', unsafe_allow_html=True)
+paper_mode = os.getenv("ALPACA_PAPER", "true").lower() == "true"
+alpaca_configured = bool(os.getenv("ALPACA_API_KEY"))
+
+paper_pill_class = "status-pill" if paper_mode else "status-pill off"
+paper_dot_class = "status-dot" if paper_mode else "status-dot off"
+alpaca_pill_class = "status-pill" if alpaca_configured else "status-pill off"
+alpaca_dot_class = "status-dot" if alpaca_configured else "status-dot off"
+
 st.markdown(
-    '<div class="sentinel-subheader">The AI proposes. The adversary challenges. Code verifies. Alpaca executes.</div>',
+    f"""
+    <div class="topbar">
+        <div class="topbar-left">
+            <div class="topbar-title">🛡️ SENTINEL</div>
+            <div class="topbar-subtitle">Adversarial Options Intelligence</div>
+        </div>
+        <div class="topbar-right">
+            <span class="{paper_pill_class}" title="Reads ALPACA_PAPER from environment">
+                <span class="{paper_dot_class}"></span> PAPER TRADING
+            </span>
+            <span class="{alpaca_pill_class}" title="Based on ALPACA_API_KEY being set — not a live connection check">
+                <span class="{alpaca_dot_class}"></span> ALPACA
+            </span>
+        </div>
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
@@ -208,96 +290,176 @@ else:
         record = None
 
     if record:
-        st.caption(f"Run ID: `{record['run_id']}`  •  {record['timestamp']}")
-
         market = record.get("market_analysis")
         proposal = record.get("trade_proposal")
         adversarial = record.get("adversarial_report")
         risk = record.get("risk_decision")
         execution = record.get("execution_result")
 
-        # --- Market ---
-        st.markdown('<div class="stage-card">', unsafe_allow_html=True)
-        st.markdown('<div class="stage-title">📊 Market Analysis</div>', unsafe_allow_html=True)
+        # --- Ticker price row ---
         if market:
-            direction_badge = "badge-good" if market["direction"] == "bullish" else "badge-bad" if market["direction"] == "bearish" else "badge-bad"
-            col1, col2, col3 = st.columns([1, 1, 2])
-            with col1:
-                st.markdown(f'<span class="badge {direction_badge}">{market["direction"].upper()}</span>', unsafe_allow_html=True)
-            with col2:
+            st.markdown(
+                f"""
+                <div class="ticker-row">
+                    <span class="ticker-symbol">{market['ticker']}</span>
+                    <span class="ticker-price">${market['current_price']:.2f}</span>
+                    <span class="ticker-meta">RUN {short_id(record['run_id'])} &nbsp;•&nbsp; {record['timestamp']}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        # --- Pipeline stepper ---
+        def step_icon(reached: bool, ok: bool | None) -> str:
+            if not reached:
+                return '<span class="step-icon pending">–</span>'
+            if ok is True:
+                return '<span class="step-icon ok">✓</span>'
+            if ok is False:
+                return '<span class="step-icon bad">✗</span>'
+            return '<span class="step-icon pending">–</span>'
+
+        market_reached = market is not None
+        strategy_reached = proposal is not None
+        adversarial_reached = adversarial is not None
+        risk_reached = risk is not None
+        execution_reached = execution is not None
+
+        adversarial_ok = adversarial["verdict"] == "survive" if adversarial else None
+        risk_ok = risk["verdict"] == "pass" if risk else None
+        execution_ok = execution["status"] == "filled" if execution else None
+
+        st.markdown(
+            f"""
+            <div class="stepper">
+                <div class="step"><div class="step-label">MARKET</div>{step_icon(market_reached, True if market_reached else None)}</div>
+                <div class="step"><div class="step-label">STRATEGY</div>{step_icon(strategy_reached, True if strategy_reached else None)}</div>
+                <div class="step"><div class="step-label">ADVERSARY</div>{step_icon(adversarial_reached, adversarial_ok)}</div>
+                <div class="step"><div class="step-label">RISK</div>{step_icon(risk_reached, risk_ok)}</div>
+                <div class="step"><div class="step-label">EXECUTION</div>{step_icon(execution_reached, execution_ok)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # --- Hero: Final Decision ---
+        if execution and execution["status"] == "filled":
+            hero_class, verdict_class, verdict_text = "hero-approved", "ok", "✓ TRADE APPROVED"
+        elif execution and execution["status"] in ("rejected", "failed"):
+            hero_class, verdict_class, verdict_text = "hero-rejected", "bad", "✗ EXECUTION FAILED"
+        elif risk and risk["verdict"] == "fail":
+            hero_class, verdict_class, verdict_text = "hero-rejected", "bad", "✗ REJECTED BY RISK ENGINE"
+        elif adversarial and adversarial["verdict"] == "reject":
+            hero_class, verdict_class, verdict_text = "hero-rejected", "bad", "✗ REJECTED BY ADVERSARY"
+        elif proposal is None:
+            hero_class, verdict_class, verdict_text = "hero-neutral", "neutral", "– NO TRADE PROPOSED"
+        else:
+            hero_class, verdict_class, verdict_text = "hero-neutral", "neutral", "– PENDING"
+
+        strategy_line = ""
+        rr_line = ""
+        if proposal:
+            strategy_line = f'<div class="hero-strategy">{proposal["strategy"].replace("_", " ").title()}</div>'
+            rr_line = f'<div class="hero-rr">Risk: ${proposal["max_loss"]:.0f} &nbsp;&nbsp; Reward: ${proposal["max_profit"]:.0f}</div>'
+
+        stop_reason = record.get("stop_reason")
+        reason_line = ""
+        if stop_reason and verdict_class != "ok":
+            reason_line = f'<div class="hero-rr" style="margin-top:0.5rem;">{stop_reason}</div>'
+
+        st.markdown(
+            f"""
+            <div class="hero-card {hero_class}">
+                <div class="hero-label">FINAL DECISION</div>
+                <div class="hero-verdict {verdict_class}">{verdict_text}</div>
+                {strategy_line}
+                {rr_line}
+                {reason_line}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # --- Market + Proposed Trade side by side ---
+        col_market, col_trade = st.columns([1, 1.4])
+
+        with col_market:
+            st.markdown('<div class="stage-card">', unsafe_allow_html=True)
+            st.markdown('<div class="stage-title">📊 Market</div>', unsafe_allow_html=True)
+            if market:
+                badge_class = "badge-good" if market["direction"] == "bullish" else "badge-bad"
+                st.markdown(f'<span class="badge {badge_class}">{market["direction"].upper()}</span>', unsafe_allow_html=True)
+                st.markdown("&nbsp;")
                 st.markdown(
                     f'<div class="metric-label">Confidence</div><div class="metric-value">{market["confidence"]*100:.0f}%</div>',
                     unsafe_allow_html=True,
                 )
-            with col3:
                 st.markdown(
-                    f'<div class="metric-label">{market["ticker"]} Price</div><div class="metric-value">${market["current_price"]:.2f}</div>',
+                    f'<div class="metric-label">Price</div><div class="metric-value">${market["current_price"]:.2f}</div>',
                     unsafe_allow_html=True,
                 )
-            if market.get("evidence"):
+                if market.get("evidence"):
+                    st.markdown("&nbsp;")
+                    for e in market["evidence"]:
+                        st.markdown(f"- {e}")
+            else:
+                st.markdown('<div class="stage-empty">No market analysis recorded.</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col_trade:
+            st.markdown('<div class="stage-card">', unsafe_allow_html=True)
+            st.markdown('<div class="stage-title">📝 Proposed Options Trade</div>', unsafe_allow_html=True)
+            if proposal:
+                st.markdown(f"**{proposal['ticker']} {proposal['strategy'].replace('_', ' ').title()}**")
+                st.markdown(
+                    f'<div class="leg-row"><span class="leg-buy">BUY</span> &nbsp;${proposal["long_strike"]:.0f} CALL</div>',
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f'<div class="leg-row"><span class="leg-sell">SELL</span> ${proposal["short_strike"]:.0f} CALL</div>',
+                    unsafe_allow_html=True,
+                )
                 st.markdown("&nbsp;")
-                for e in market["evidence"]:
-                    st.markdown(f"- {e}")
-        else:
-            st.markdown('<div class="stage-empty">No market analysis recorded.</div>', unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown(
+                        f'<div class="metric-label">Max Loss</div><div class="metric-value">${proposal["max_loss"]:.2f}</div>',
+                        unsafe_allow_html=True,
+                    )
+                with c2:
+                    st.markdown(
+                        f'<div class="metric-label">Max Profit</div><div class="metric-value">${proposal["max_profit"]:.2f}</div>',
+                        unsafe_allow_html=True,
+                    )
+                st.markdown("&nbsp;")
+                st.markdown(f"*{proposal['rationale']}*")
+            else:
+                fallback = "No trade was proposed for this run."
+                st.markdown(
+                    f'<div class="stage-empty">{stop_reason or fallback}</div>',
+                    unsafe_allow_html=True,
+                )
+            st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- Proposed Trade ---
-        st.markdown('<div class="stage-card">', unsafe_allow_html=True)
-        st.markdown('<div class="stage-title">📝 Proposed Trade</div>', unsafe_allow_html=True)
-        if proposal:
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.markdown(
-                    f'<div class="metric-label">Strategy</div><div class="metric-value">{proposal["strategy"].replace("_", " ").title()}</div>',
-                    unsafe_allow_html=True,
-                )
-            with col2:
-                st.markdown(
-                    f'<div class="metric-label">Strikes</div><div class="metric-value">{proposal["long_strike"]:.0f} / {proposal["short_strike"]:.0f}</div>',
-                    unsafe_allow_html=True,
-                )
-            with col3:
-                st.markdown(
-                    f'<div class="metric-label">Max Loss</div><div class="metric-value">${proposal["max_loss"]:.2f}</div>',
-                    unsafe_allow_html=True,
-                )
-            with col4:
-                st.markdown(
-                    f'<div class="metric-label">Max Profit</div><div class="metric-value">${proposal["max_profit"]:.2f}</div>',
-                    unsafe_allow_html=True,
-                )
-            st.markdown("&nbsp;")
-            st.markdown(f"*{proposal['rationale']}*")
-        else:
-            st.markdown(
-                '<div class="stage-empty">No trade proposed — market read did not support a bullish spread.</div>',
-                unsafe_allow_html=True,
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        # --- Adversarial Attack ---
+        # --- Adversarial Challenge ---
         st.markdown('<div class="stage-card">', unsafe_allow_html=True)
         st.markdown('<div class="stage-title">⚔️ Adversarial Challenge</div>', unsafe_allow_html=True)
         if adversarial:
             badge_class = "badge-good" if adversarial["verdict"] == "survive" else "badge-bad"
+            verdict_label = "THESIS SURVIVED" if adversarial["verdict"] == "survive" else "THESIS REJECTED"
             col1, col2 = st.columns([1, 3])
             with col1:
-                st.markdown(f'<span class="badge {badge_class}">{adversarial["verdict"].upper()}</span>', unsafe_allow_html=True)
+                st.markdown(f'<span class="badge {badge_class}">{verdict_label}</span>', unsafe_allow_html=True)
             with col2:
                 st.markdown(
                     f'<div class="metric-label">Thesis Survival</div><div class="metric-value">{adversarial["thesis_survival"]*100:.0f}%</div>',
                     unsafe_allow_html=True,
                 )
             st.markdown("&nbsp;")
-            if adversarial.get("weaknesses"):
-                st.markdown("**Weaknesses raised:**")
-                for w in adversarial["weaknesses"]:
-                    st.markdown(f"- ⚠️ {w}")
-            if adversarial.get("strengths"):
-                st.markdown("**Strengths held:**")
-                for s in adversarial["strengths"]:
-                    st.markdown(f"- ✓ {s}")
+            for s in adversarial.get("strengths", []):
+                st.markdown(f"✓ {s}")
+            for w in adversarial.get("weaknesses", []):
+                st.markdown(f"⚠ {w}")
             st.markdown(f"*{adversarial['reasoning']}*")
         else:
             st.markdown('<div class="stage-empty">Pipeline stopped before reaching the adversarial challenge.</div>', unsafe_allow_html=True)
@@ -311,24 +473,29 @@ else:
             st.markdown(f'<span class="badge {badge_class}">{risk["verdict"].upper()}</span>', unsafe_allow_html=True)
             st.markdown("&nbsp;")
             for check in risk.get("checks", []):
-                icon = "✓" if check["passed"] else "✗"
-                st.markdown(f"{icon} **{check['rule']}** — {check['detail']}")
+                row_class = "risk-row risk-ok" if check["passed"] else "risk-row risk-bad"
+                rule_label = check["rule"].replace("_", " ").title()
+                st.markdown(
+                    f'<div class="{row_class}"><strong>{rule_label}</strong> — {check["detail"]}</div>',
+                    unsafe_allow_html=True,
+                )
         else:
             st.markdown('<div class="stage-empty">Pipeline stopped before reaching the risk engine.</div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-        # --- Final Decision ---
+        # --- Execution ---
         st.markdown('<div class="stage-card">', unsafe_allow_html=True)
-        st.markdown('<div class="stage-title">🏁 Final Decision</div>', unsafe_allow_html=True)
+        st.markdown('<div class="stage-title">🏁 Execution</div>', unsafe_allow_html=True)
         if execution:
             status = execution["status"]
             badge_class = "badge-good" if status == "filled" else "badge-bad"
-            st.markdown(f'<span class="badge {badge_class}">{status.upper().replace("_", " ")}</span>', unsafe_allow_html=True)
+            status_label = "PAPER ORDER FILLED" if status == "filled" else status.upper().replace("_", " ")
+            st.markdown(f'<span class="badge {badge_class}">{status_label}</span>', unsafe_allow_html=True)
             st.markdown("&nbsp;")
             if execution.get("order_id"):
                 st.markdown(f"**Order ID:** `{execution['order_id']}`")
             if execution.get("filled_avg_price") is not None:
-                st.markdown(f"**Filled avg price:** ${execution['filled_avg_price']:.2f}")
+                st.markdown(f"**Avg Price:** ${execution['filled_avg_price']:.2f}")
             st.markdown(f"{execution.get('detail', '')}")
         else:
             st.markdown('<div class="stage-empty">No trade reached execution.</div>', unsafe_allow_html=True)
