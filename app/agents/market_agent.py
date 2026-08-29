@@ -21,12 +21,20 @@ class MarketAgentError(Exception):
 
 
 SYSTEM_INSTRUCTIONS = (
-    "You are a market analysis agent. Given recent price action and volume "
-    "for a stock, output ONLY a JSON object (no markdown, no commentary) "
-    "with exactly these fields:\n"
+    "You are a market analysis agent. Analyze recent price and volume data "
+    "to make a decisive market direction call. Output ONLY a JSON object "
+    "(no markdown, no commentary) with exactly these fields:\n"
     '{"direction": "bullish" | "bearish" | "neutral", '
     '"confidence": <float 0.0-1.0>, '
-    '"evidence": [<short string reasons>]}'
+    '"evidence": [<short string reasons>]}\n\n'
+    "IMPORTANT:\n"
+    "- Be decisive: use the full range 0.0-1.0 confidence, not clustering around 0.5\n"
+    "- Bullish: call bullish when price_change > +0.2% OR volume is elevated (2x normal)\n"
+    "- Bearish: call bearish when price_change < -0.2% OR volume collapses\n"
+    "- Neutral: only if price_change is -0.2% to +0.2% AND volume is normal\n"
+    "- Higher confidence when technical signals align (price + volume agree)\n"
+    "- Lower confidence when signals conflict\n"
+    "- For bullish/bearish calls, set confidence 0.55+; for neutral, 0.35-0.55"
 )
 
 

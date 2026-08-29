@@ -1,155 +1,96 @@
 """
-Orchestrator.
+Audit Logger.
 
-Controls the sequence: Market Agent -> Strategy Agent -> Adversarial
-Agent -> Risk Engine -> Execution -> Audit. Contains no trading logic
-itself — every decision is made by the component responsible for it.
-This file only sequences calls and decides whether to continue or
-stop based on each component's verdict.
+Every run of the pipeline produces one JSON file capturing the full
+decision trail: market analysis, trade proposal, adversarial report,
+risk decision, and execution result. This is what answers "why did
+the agent trade" or "why didn't it" — the core of the demo story.
+
+No LLM involvement. Pure file I/O.
 """
 
-from dataclasses import dataclass
+import json
+import uuid
+from datetime import datetime
+from pathlib import Path
 
-from app.agents.adversarial_agent import AdversarialAgent
-from app.agents.market_agent import MarketAgent
-from app.agents.strategy_agent import StrategyAgent, StrategyAgentError
-from app.audit.audit_logger import AuditLogger
-from app.models.adversarial import AdversarialVerdict
-from app.models.execution import ExecutionResult, ExecutionStatus
-from app.models.risk import RiskVerdict
-from app.risk.risk_engine import RiskEngine
-from app.services.alpaca_service import AlpacaService
+from pydantic import BaseModel
 
 
-@dataclass
-class PipelineResult:
-    """What the orchestrator returns after one full run."""
+class AuditLogger:
+    """Writes one JSON audit record per pipeline run to data/audit/."""
 
-    run_id: str
-    stage_reached: str  # "market" | "strategy" | "adversarial" | "risk" | "execution"
-    executed: bool
-    summary: str
+    def __init__(self, audit_dir: str = "data/audit") -> None:
+        self.audit_dir = Path(audit_dir)
+        self.audit_dir.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _serialize(value):
+        """Convert Pydantic models (or None) into plain JSON-safe dicts."""
+        if value is None:
+            return None
+        if isinstance(value, BaseModel):
+            return json.loads(value.model_dump_json())
+        return value
 
-class Orchestrator:
-    def __init__(
+    def log_run(
         self,
-        market_agent: MarketAgent,
-        strategy_agent: StrategyAgent,
-        adversarial_agent: AdversarialAgent,
-        risk_engine: RiskEngine,
-        alpaca_service: AlpacaService,
-        audit_logger: AuditLogger,
-    ) -> None:
-        self.market_agent = market_agent
-        self.strategy_agent = strategy_agent
-        self.adversarial_agent = adversarial_agent
-        self.risk_engine = risk_engine
-        self.alpaca_service = alpaca_service
-        self.audit_logger = audit_logger
+        market_analysis=None,
+        trade_proposal=None,
+        adversarial_report=None,
+        risk_decision=None,
+        execution_result=None,
+        run_id: str | None = None,
+        stop_reason: str | None = None,
+    ) -> str:
+        """
+        Write one audit record. Any stage can be None if the pipeline
+        stopped before reaching it (e.g. adversarial rejected the trade,
+        so risk_decision and execution_result stay None).
 
-    def run(self, ticker: str, quantity: int = 1) -> PipelineResult:
-        market_analysis = None
-        trade_proposal = None
-        adversarial_report = None
-        risk_decision = None
-        execution_result = None
+        stop_reason is a plain-English explanation of the outcome (why
+        the pipeline stopped, or that it completed) — this is what
+        the dashboard shows the user instead of guessing from which
+        fields are present/absent.
 
-        # --- Stage 1: Market Agent ---
-        market_analysis = self.market_agent.analyze(ticker)
+        Returns the run_id used (generated if not provided) so callers
+        can reference the same run elsewhere (e.g. in the dashboard).
+        """
+        if run_id is None:
+            run_id = f"run_{uuid.uuid4().hex[:8]}"
 
-        # --- Stage 2: Strategy Agent ---
-        # A non-bullish call is one reason this can stop here, but it is
-        # NOT the only reason — a malformed/invalid LLM response for the
-        # strategy step also raises StrategyAgentError. We always persist
-        # the real exception text as stop_reason so the UI never has to
-        # guess why no trade was proposed.
-        try:
-            trade_proposal = self.strategy_agent.propose(market_analysis, quantity=quantity)
-        except StrategyAgentError as e:
-            summary = f"No trade proposed: {e}"
-            run_id = self.audit_logger.log_run(market_analysis=market_analysis, stop_reason=summary)
-            return PipelineResult(
-                run_id=run_id,
-                stage_reached="market",
-                executed=False,
-                summary=summary,
-            )
+        record = {
+            "run_id": run_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "market_analysis": self._serialize(market_analysis),
+            "trade_proposal": self._serialize(trade_proposal),
+            "adversarial_report": self._serialize(adversarial_report),
+            "risk_decision": self._serialize(risk_decision),
+            "execution_result": self._serialize(execution_result),
+            "stop_reason": stop_reason,
+        }
 
-        # --- Stage 3: Adversarial Agent ---
-        adversarial_report = self.adversarial_agent.attack(trade_proposal, market_analysis)
+        file_path = self.audit_dir / f"{run_id}.json"
+        file_path.write_text(json.dumps(record, indent=2, default=str), encoding="utf-8")
 
-        if adversarial_report.verdict == AdversarialVerdict.REJECT:
-            summary = f"Trade rejected by adversarial agent: {adversarial_report.reasoning}"
-            run_id = self.audit_logger.log_run(
-                market_analysis=market_analysis,
-                trade_proposal=trade_proposal,
-                adversarial_report=adversarial_report,
-                stop_reason=summary,
-            )
-            return PipelineResult(
-                run_id=run_id,
-                stage_reached="adversarial",
-                executed=False,
-                summary=summary,
-            )
+        return run_id
 
-        # --- Stage 4: Risk Engine ---
-        risk_decision = self.risk_engine.evaluate(trade_proposal)
+    def load_run(self, run_id: str) -> dict:
+        """Read back a single run's audit record."""
+        file_path = self.audit_dir / f"{run_id}.json"
+        if not file_path.exists():
+            raise FileNotFoundError(f"No audit record found for run_id={run_id}")
+        return json.loads(file_path.read_text(encoding="utf-8"))
 
-        if risk_decision.verdict == RiskVerdict.FAIL:
-            summary = f"Trade rejected by risk engine: {risk_decision.reason}"
-            run_id = self.audit_logger.log_run(
-                market_analysis=market_analysis,
-                trade_proposal=trade_proposal,
-                adversarial_report=adversarial_report,
-                risk_decision=risk_decision,
-                stop_reason=summary,
-            )
-            return PipelineResult(
-                run_id=run_id,
-                stage_reached="risk",
-                executed=False,
-                summary=summary,
-            )
-
-        # --- Stage 5: Execution ---
-        try:
-            order_id = self.alpaca_service.submit_vertical_spread(
-                long_symbol=trade_proposal.long_symbol,
-                short_symbol=trade_proposal.short_symbol,
-                quantity=trade_proposal.quantity,
-            )
-            execution_result = self.alpaca_service.poll_order_until_filled(order_id)
-        except Exception as e:
-            execution_result = ExecutionResult(
-                status=ExecutionStatus.FAILED,
-                detail=f"Execution raised an unexpected error: {e}",
-            )
-
-        if execution_result.status == ExecutionStatus.FILLED:
-            realized_loss = 0.0  # unrealized at fill time; loss only realized on close
-            self.risk_engine.record_trade_executed(realized_pnl=realized_loss)
-
-        executed = execution_result.status == ExecutionStatus.FILLED
-        summary = (
-            f"Trade executed: {execution_result.detail}"
-            if executed
-            else f"Trade approved but did not fill: {execution_result.detail}"
+    def list_runs(self) -> list[str]:
+        """Return all run_ids currently on disk, most recent first."""
+        files = sorted(
+            self.audit_dir.glob("run_*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
         )
+        return [f.stem for f in files]
 
-        run_id = self.audit_logger.log_run(
-            market_analysis=market_analysis,
-            trade_proposal=trade_proposal,
-            adversarial_report=adversarial_report,
-            risk_decision=risk_decision,
-            execution_result=execution_result,
-            stop_reason=summary,
-        )
-
-        return PipelineResult(
-            run_id=run_id,
-            stage_reached="execution",
-            executed=executed,
-            summary=summary,
-        )
+    def load_all_runs(self) -> list[dict]:
+        """Return all audit records, most recent first — used by the dashboard."""
+        return [self.load_run(run_id) for run_id in self.list_runs()]

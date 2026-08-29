@@ -21,6 +21,7 @@ from app.services.options_service import OptionsService
 
 LLMCallable = Callable[[str], str]
 OPTIONS_MULTIPLIER = 100  # standard equity options contract multiplier
+MAX_LLM_ATTEMPTS = 2  # one retry with corrective feedback if the LLM returns an invalid value
 
 
 class StrategyAgentError(Exception):
@@ -31,9 +32,14 @@ SYSTEM_INSTRUCTIONS = (
     "You are an options strategy agent. Given a bullish market call and a "
     "candidate bull call spread (strikes, expiration), estimate how much of "
     "the strike width would typically be paid as net debit for this spread. "
-    "Output ONLY a JSON object (no markdown, no commentary) with exactly "
-    "these fields:\n"
-    '{"estimated_net_debit_pct": <float strictly between 0.0 and 1.0>, '
+    "A real bull call spread ALWAYS costs a positive net debit — it can "
+    "never be free (0.0) and can never cost the entire strike width (1.0). "
+    "A typical value is between 0.2 and 0.6. For example, a $10-wide spread "
+    "might cost around $4 net debit, which is 0.4.\n\n"
+    "Output ONLY a JSON object (no markdown, no commentary, no extra text) "
+    "with exactly these fields:\n"
+    '{"estimated_net_debit_pct": <float strictly greater than 0.0 and '
+    "strictly less than 1.0 — NEVER exactly 0.0 or exactly 1.0>, "
     '"rationale": <short string explaining the trade choice>}'
 )
 
@@ -68,23 +74,52 @@ class StrategyAgent:
             market_analysis.ticker, current_price=market_analysis.current_price
         )
 
-        prompt = build_strategy_prompt(market_analysis, spread)
-        raw_response = self.llm_call(prompt)
-        data = self._parse_llm_json(raw_response)
+        base_prompt = build_strategy_prompt(market_analysis, spread)
+        debit_pct = None
+        rationale = None
+        last_error = None
+        raw_response = None
 
-        try:
-            debit_pct = float(data["estimated_net_debit_pct"])
-            rationale = str(data["rationale"])
-        except (KeyError, ValueError, TypeError) as e:
-            raise StrategyAgentError(
-                f"LLM response missing or invalid fields ({e}). Raw response: {raw_response!r}"
-            )
+        for attempt in range(1, MAX_LLM_ATTEMPTS + 1):
+            prompt = base_prompt
+            if attempt > 1 and last_error is not None:
+                prompt += (
+                    f"\n\nYour previous response was invalid: {last_error}\n"
+                    "Return ONLY the corrected JSON object as instructed above. "
+                    "estimated_net_debit_pct must be strictly greater than 0.0 "
+                    "and strictly less than 1.0 — a realistic value like 0.35 "
+                    "or 0.45, never exactly 0.0 or 1.0."
+                )
 
-        if not (0.0 < debit_pct < 1.0):
-            raise StrategyAgentError(
-                f"estimated_net_debit_pct must be strictly between 0 and 1, got {debit_pct}. "
-                f"Raw response: {raw_response!r}"
-            )
+            raw_response = self.llm_call(prompt)
+
+            try:
+                data = self._parse_llm_json(raw_response)
+                debit_pct = float(data["estimated_net_debit_pct"])
+                rationale = str(data["rationale"])
+            except (KeyError, ValueError, TypeError, StrategyAgentError) as e:
+                last_error = str(e)
+                debit_pct = None
+                if attempt == MAX_LLM_ATTEMPTS:
+                    raise StrategyAgentError(
+                        f"LLM failed to return a valid strategy after {MAX_LLM_ATTEMPTS} "
+                        f"attempt(s). Last error: {last_error}. Raw response: {raw_response!r}"
+                    )
+                continue
+
+            if not (0.0 < debit_pct < 1.0):
+                last_error = (
+                    f"estimated_net_debit_pct must be strictly between 0 and 1, got {debit_pct}"
+                )
+                debit_pct = None
+                if attempt == MAX_LLM_ATTEMPTS:
+                    raise StrategyAgentError(
+                        f"LLM failed to return a valid strategy after {MAX_LLM_ATTEMPTS} "
+                        f"attempt(s). Last error: {last_error}. Raw response: {raw_response!r}"
+                    )
+                continue
+
+            break  # success — debit_pct and rationale are both valid
 
         spread_width = spread["short_strike"] - spread["long_strike"]
         net_debit_per_share = debit_pct * spread_width

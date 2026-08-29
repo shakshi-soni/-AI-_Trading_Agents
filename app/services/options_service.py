@@ -64,7 +64,15 @@ class OptionsService:
         """
         Find active call contracts for the underlying, within an
         expiration window and a strike range around the current price.
-        Returns contracts sorted by strike, ascending, as plain dicts.
+
+        IMPORTANT: this window can span MULTIPLE expiration cycles
+        (e.g. several weekly expiries). The returned list is sorted by
+        strike only and may contain contracts from different expiration
+        dates that happen to share the same strike price. Callers that
+        need a genuine vertical spread (both legs same expiry) MUST
+        narrow to a single expiration first — see
+        select_single_expiration_contracts() below. Do not pick two
+        "adjacent" contracts from this raw list directly.
         """
         today = date.today()
         exp_gte = today + timedelta(days=min_days_to_expiry)
@@ -102,6 +110,23 @@ class OptionsService:
         ]
         return sorted(normalized, key=lambda c: c["strike_price"])
 
+    @staticmethod
+    def select_single_expiration_contracts(contracts: list[dict]) -> list[dict]:
+        """
+        Narrow a (possibly multi-expiration) contract list down to just
+        the SOONEST available expiration date, so both legs of a spread
+        are guaranteed to share the same expiry — this is what makes it
+        a genuine vertical spread rather than a diagonal one, and it
+        also guarantees each strike price appears at most once (a
+        single expiration's chain never lists the same strike twice).
+        """
+        if not contracts:
+            raise NoContractsFoundError("No contracts available to select an expiration from.")
+
+        target_expiration = min(c["expiration_date"] for c in contracts)
+        same_expiry = [c for c in contracts if c["expiration_date"] == target_expiration]
+        return sorted(same_expiry, key=lambda c: c["strike_price"])
+
     def select_bull_call_spread_strikes(
         self,
         contracts: list[dict],
@@ -109,9 +134,14 @@ class OptionsService:
         spread_width_strikes: int = 2,
     ) -> tuple[dict, dict]:
         """
-        Given a sorted list of call contracts, pick the long leg (nearest
-        strike at/above current price) and the short leg (spread_width_strikes
-        higher). Returns (long_contract, short_contract) as dicts.
+        Given a sorted list of SAME-EXPIRATION call contracts, pick the
+        long leg (nearest strike at/above current price) and the short
+        leg (spread_width_strikes higher). Returns (long_contract,
+        short_contract) as dicts.
+
+        Callers must pass a single-expiration list (see
+        select_single_expiration_contracts) — this method does not
+        check expiration itself, only strike ordering.
         """
         if len(contracts) < spread_width_strikes + 1:
             raise InsufficientStrikesError(
@@ -125,10 +155,23 @@ class OptionsService:
         )
         short_idx = min(long_idx + spread_width_strikes, len(contracts) - 1)
 
-        if short_idx == long_idx:
+        # Defense in depth: even within a single expiration, guard against
+        # any duplicate/non-increasing strike data by advancing short_idx
+        # until we find a genuinely higher strike, or fail clearly if none
+        # exists. This should be rare (a clean single-expiration chain has
+        # unique strikes) but a silent zero-width spread must never reach
+        # the caller.
+        while (
+            short_idx < len(contracts) - 1
+            and contracts[short_idx]["strike_price"] <= contracts[long_idx]["strike_price"]
+        ):
+            short_idx += 1
+
+        if contracts[short_idx]["strike_price"] <= contracts[long_idx]["strike_price"]:
             raise InsufficientStrikesError(
-                "Could not find a distinct higher strike for the short leg "
-                "within the available contracts."
+                "Could not find a contract with a strike price genuinely higher "
+                f"than the long leg's strike ({contracts[long_idx]['strike_price']}) — "
+                "no valid short leg available in this expiration's chain."
             )
 
         return contracts[long_idx], contracts[short_idx]
@@ -142,10 +185,10 @@ class OptionsService:
         spread_width_strikes: int = 2,
     ) -> dict:
         """
-        End-to-end: find contracts, pick strikes, and return a fully
-        described bull call spread ready to hand to strategy_agent.py
-        for wrapping into a TradeProposal (max_loss/max_profit still
-        need real premium quotes, which strategy_agent computes).
+        End-to-end: find contracts, narrow to a single expiration cycle
+        (so both legs genuinely form a vertical spread), pick strikes,
+        validate the result, and return a fully described spread ready
+        to hand to strategy_agent.py for wrapping into a TradeProposal.
         """
         contracts = self.find_call_contracts(
             underlying_symbol,
@@ -153,9 +196,24 @@ class OptionsService:
             min_days_to_expiry=min_days_to_expiry,
             max_days_to_expiry=max_days_to_expiry,
         )
+        same_expiry_contracts = self.select_single_expiration_contracts(contracts)
         long_contract, short_contract = self.select_bull_call_spread_strikes(
-            contracts, current_price, spread_width_strikes=spread_width_strikes
+            same_expiry_contracts, current_price, spread_width_strikes=spread_width_strikes
         )
+
+        if not self.validate_spread_width(long_contract["strike_price"], short_contract["strike_price"]):
+            raise InsufficientStrikesError(
+                f"Selected spread failed final validation: long_strike="
+                f"{long_contract['strike_price']}, short_strike={short_contract['strike_price']} "
+                "— short strike must be strictly greater than long strike."
+            )
+
+        if long_contract["expiration_date"] != short_contract["expiration_date"]:
+            raise InsufficientStrikesError(
+                "Selected spread legs have different expiration dates "
+                f"({long_contract['expiration_date']} vs {short_contract['expiration_date']}) "
+                "— both legs of a vertical spread must share the same expiry."
+            )
 
         return {
             "underlying": underlying_symbol,

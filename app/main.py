@@ -70,12 +70,22 @@ def get_llm_call(provider: str):
         client = Groq(api_key=api_key)
 
         def call(prompt: str) -> str:
+            # openai/gpt-oss-20b and openai/gpt-oss-120b are reasoning models:
+            # they think internally (in a separate `reasoning` field) before
+            # writing the final answer to `content`. With a low token budget,
+            # reasoning can consume the whole budget and leave `content`
+            # empty. reasoning_effort="low" keeps thinking short, and a
+            # generous max_completion_tokens ensures room for both the
+            # reasoning and the actual JSON answer.
             response = client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
+                max_completion_tokens=1024,
+                reasoning_effort="low",
             )
-            return response.choices[0].message.content
+            content = response.choices[0].message.content
+            return content if content else ""
 
         return call
 
