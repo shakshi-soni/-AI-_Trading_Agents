@@ -496,19 +496,35 @@ else:
                         unsafe_allow_html=True,
                     )
                     st.write("")
+                    
+                    # Show verified economics if available
+                    use_verified = proposal.get("verified_max_loss") and proposal.get("verified_max_profit")
+                    
                     c1, c2 = st.columns(2)
                     with c1:
+                        max_loss = proposal.get("verified_max_loss", proposal["max_loss"])
+                        label = "Max Loss (Verified)" if use_verified else "Max Loss (LLM)"
                         st.markdown(
-                            f'<div class="metric-label">Max Loss</div><div class="metric-value">${proposal["max_loss"]:.2f}</div>',
+                            f'<div class="metric-label">{label}</div><div class="metric-value">${max_loss:.2f}</div>',
                             unsafe_allow_html=True,
                         )
                     with c2:
+                        max_profit = proposal.get("verified_max_profit", proposal["max_profit"])
+                        label = "Max Profit (Verified)" if use_verified else "Max Profit (LLM)"
                         st.markdown(
-                            f'<div class="metric-label">Max Profit</div><div class="metric-value">${proposal["max_profit"]:.2f}</div>',
+                            f'<div class="metric-label">{label}</div><div class="metric-value">${max_profit:.2f}</div>',
                             unsafe_allow_html=True,
                         )
+                    
                     st.write("")
                     st.markdown(f"*{proposal['rationale']}*")
+                    
+                    # Show verification warnings if any
+                    if proposal.get("verification_warnings"):
+                        st.write("")
+                        st.markdown("**Validation Warnings:**")
+                        for warning in proposal.get("verification_warnings", []):
+                            st.markdown(f"⚠ {warning}")
                 else:
                     fallback = "No trade was proposed for this run."
                     st.markdown(f'<div class="stage-empty">{stop_reason or fallback}</div>', unsafe_allow_html=True)
@@ -527,7 +543,24 @@ else:
                         f'<div class="metric-label">Thesis Survival</div><div class="metric-value">{adversarial["thesis_survival"]*100:.0f}%</div>',
                         unsafe_allow_html=True,
                     )
+                
+                # Show verified facts separately
                 st.write("")
+                st.markdown("**Verified Facts (Python-calculated):**")
+                verified = adversarial.get("verified_facts", {})
+                if verified:
+                    facts_cols = st.columns(3)
+                    with facts_cols[0]:
+                        st.markdown(f'<div class="metric-label">Max Loss</div><div class="metric-value">${verified.get("max_loss", 0):.2f}</div>', unsafe_allow_html=True)
+                    with facts_cols[1]:
+                        st.markdown(f'<div class="metric-label">Max Profit</div><div class="metric-value">${verified.get("max_profit", 0):.2f}</div>', unsafe_allow_html=True)
+                    with facts_cols[2]:
+                        st.markdown(f'<div class="metric-label">Breakeven</div><div class="metric-value">${verified.get("breakeven_price", 0):.2f}</div>', unsafe_allow_html=True)
+                    st.markdown(f"DTE: {verified.get('days_to_expiration', 0)} | Spread: ${verified.get('spread_width', 0):.2f}")
+                
+                # Show adversarial arguments
+                st.write("")
+                st.markdown("**Adversarial Analysis:**")
                 for s in adversarial.get("strengths", []):
                     st.markdown(f"✓ {s}")
                 for w in adversarial.get("weaknesses", []):

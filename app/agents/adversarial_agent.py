@@ -56,20 +56,34 @@ SYSTEM_INSTRUCTIONS = (
 def build_adversarial_prompt(proposal: TradeProposal, market_analysis: MarketAnalysis) -> str:
     from datetime import date
     days_to_expiry = (proposal.expiration - date.today()).days
+    
+    # Use VERIFIED economics if available, otherwise fall back to LLM-generated
+    max_loss = proposal.verified_max_loss if proposal.verified_max_loss else proposal.max_loss
+    max_profit = proposal.verified_max_profit if proposal.verified_max_profit else proposal.max_profit
+    spread_width = proposal.verified_spread_width if proposal.verified_spread_width else (proposal.short_strike - proposal.long_strike)
+    breakeven = proposal.verified_breakeven if proposal.verified_breakeven else (proposal.long_strike + (max_loss / 100))
+    
     return (
         f"{SYSTEM_INSTRUCTIONS}\n\n"
+        f"=== VERIFIED FACTS (calculated by Python) ===\n"
         f"Ticker: {proposal.ticker}\n"
         f"Current Price: ${market_analysis.current_price:.2f}\n"
+        f"Spread Width: ${spread_width:.2f}\n"
+        f"Breakeven Price: ${breakeven:.2f}\n"
+        f"Days to Expiration: {days_to_expiry}\n"
+        f"Max Loss (per contract): ${max_loss:.2f}\n"
+        f"Max Profit (per contract): ${max_profit:.2f}\n"
+        f"Quantity: {proposal.quantity}\n"
+        f"\n=== TRADE STRUCTURE ===\n"
         f"Strategy: {proposal.strategy.value}\n"
-        f"Long strike: ${proposal.long_strike:.2f}\n"
-        f"Short strike: ${proposal.short_strike:.2f}\n"
-        f"Expiration: {proposal.expiration} ({days_to_expiry} days)\n"
-        f"Max loss: ${proposal.max_loss:.2f}\n"
-        f"Max profit: ${proposal.max_profit:.2f}\n"
-        f"Strategy agent's rationale: {proposal.rationale}\n"
+        f"Long strike: ${proposal.long_strike:.2f} (BUY CALL)\n"
+        f"Short strike: ${proposal.short_strike:.2f} (SELL CALL)\n"
+        f"Expiration: {proposal.expiration}\n"
+        f"\n=== MARKET CONTEXT ===\n"
         f"Original market call: {market_analysis.direction.value}, "
         f"confidence={market_analysis.confidence:.2f}\n"
         f"Market evidence cited: {', '.join(market_analysis.evidence) if market_analysis.evidence else 'none'}\n"
+        f"Strategy agent's rationale: {proposal.rationale}\n"
     )
 
 
@@ -97,10 +111,24 @@ class AdversarialAgent:
                 f"LLM response missing or invalid fields ({e}). Raw response: {raw_response!r}"
             )
 
+        # Build verified facts dict from proposal
+        verified_facts = {
+            "current_price": market_analysis.current_price,
+            "long_strike": proposal.long_strike,
+            "short_strike": proposal.short_strike,
+            "spread_width": proposal.verified_spread_width or (proposal.short_strike - proposal.long_strike),
+            "breakeven_price": proposal.verified_breakeven,
+            "max_loss": proposal.verified_max_loss or proposal.max_loss,
+            "max_profit": proposal.verified_max_profit or proposal.max_profit,
+            "days_to_expiration": (proposal.expiration - __import__('datetime').date.today()).days,
+            "expiration": str(proposal.expiration),
+        }
+
         try:
             return AdversarialReport(
                 verdict=verdict,
                 thesis_survival=thesis_survival,
+                verified_facts=verified_facts,
                 weaknesses=weaknesses,
                 strengths=strengths,
                 reasoning=reasoning,

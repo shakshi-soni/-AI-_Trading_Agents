@@ -1,9 +1,9 @@
 """
 Orchestrator.
 
-Controls the sequence: Market Agent -> Strategy Agent -> Adversarial
-Agent -> Risk Engine -> Execution -> Audit. Contains no trading logic
-itself — every decision is made by the component responsible for it.
+Controls the sequence: Market Agent -> Strategy Agent -> Trade Validator ->
+Adversarial Agent -> Risk Engine -> Execution -> Audit. Contains no trading
+logic itself — every decision is made by the component responsible for it.
 This file only sequences calls and decides whether to continue or
 stop based on each component's verdict.
 """
@@ -19,6 +19,7 @@ from app.audit.audit_logger import AuditLogger
 from app.models.adversarial import AdversarialVerdict
 from app.models.execution import ExecutionResult, ExecutionStatus
 from app.models.risk import RiskVerdict
+from app.models.trade_validation import TradeValidator
 from app.risk.risk_engine import RiskEngine
 from app.services.alpaca_service import AlpacaService
 
@@ -95,7 +96,48 @@ class Orchestrator:
                 summary=summary,
             )
 
-        # --- Stage 3: Adversarial Agent ---
+        # --- Stage 2.5: Deterministic Trade Validator ---
+        # Validates economics and calculates verified max_loss/max_profit BEFORE adversary sees it
+        logger.info(f"[2.5/5] Running Trade Validator (deterministic)...")
+        try:
+            validator = TradeValidator()
+            economics, warnings = validator.validate_and_calculate(
+                current_price=market_analysis.current_price,
+                long_strike=trade_proposal.long_strike,
+                short_strike=trade_proposal.short_strike,
+                expiration=trade_proposal.expiration,
+                estimated_net_debit_pct=(trade_proposal.max_loss / 100) / (trade_proposal.short_strike - trade_proposal.long_strike),
+                quantity=quantity,
+            )
+            
+            # Update trade proposal with VERIFIED economics
+            trade_proposal.verified_spread_width = economics.spread_width
+            trade_proposal.verified_net_debit = economics.net_debit_total
+            trade_proposal.verified_max_loss = economics.max_loss_per_contract * quantity
+            trade_proposal.verified_max_profit = economics.max_profit_per_contract * quantity
+            trade_proposal.verified_breakeven = economics.breakeven_price
+            trade_proposal.verification_warnings = warnings
+            
+            logger.info(
+                f"[2.5/5] Trade validation complete: verified_max_loss=${trade_proposal.verified_max_loss:.2f}, "
+                f"verified_max_profit=${trade_proposal.verified_max_profit:.2f}, breakeven=${economics.breakeven_price:.2f}"
+            )
+            if warnings:
+                logger.info(f"[2.5/5] Validation warnings: {', '.join(warnings)}")
+        except ValueError as e:
+            summary = f"Trade validation failed: {e}"
+            logger.error(f"[2.5/5] Validation error: {e}")
+            run_id = self.audit_logger.log_run(
+                market_analysis=market_analysis,
+                trade_proposal=trade_proposal,
+                stop_reason=summary,
+            )
+            return PipelineResult(
+                run_id=run_id,
+                stage_reached="strategy",
+                executed=False,
+                summary=summary,
+            )
         logger.info(f"[3/5] Running Adversarial Agent...")
         adversarial_report = self.adversarial_agent.attack(trade_proposal, market_analysis)
         logger.info(
