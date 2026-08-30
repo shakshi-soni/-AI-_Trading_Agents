@@ -101,12 +101,18 @@ class Orchestrator:
         logger.info(f"[2.5/5] Running Trade Validator (deterministic)...")
         try:
             validator = TradeValidator()
+            spread_width = trade_proposal.short_strike - trade_proposal.long_strike
+            estimated_net_debit_pct = (
+                (trade_proposal.max_loss / (100 * quantity)) / spread_width
+                if quantity > 0 and spread_width > 0
+                else 0.0
+            )
             economics, warnings = validator.validate_and_calculate(
                 current_price=market_analysis.current_price,
                 long_strike=trade_proposal.long_strike,
                 short_strike=trade_proposal.short_strike,
                 expiration=trade_proposal.expiration,
-                estimated_net_debit_pct=(trade_proposal.max_loss / 100) / (trade_proposal.short_strike - trade_proposal.long_strike),
+                estimated_net_debit_pct=estimated_net_debit_pct,
                 quantity=quantity,
             )
             

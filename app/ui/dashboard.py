@@ -495,6 +495,9 @@ else:
                         f'<div class="leg-row"><span class="leg-sell">SELL</span> ${proposal["short_strike"]:.0f} CALL</div>',
                         unsafe_allow_html=True,
                     )
+                    expiry_text = proposal.get("expiration")
+                    if expiry_text:
+                        st.markdown(f"**Expiration:** {expiry_text}")
                     st.write("")
                     
                     # Show verified economics if available
@@ -546,7 +549,7 @@ else:
                 
                 # Show verified facts separately
                 st.write("")
-                st.markdown("**Verified Facts (Python-calculated):**")
+                st.markdown("**Trade Facts Supplied to Adversary:**")
                 verified = adversarial.get("verified_facts", {})
                 if verified:
                     facts_cols = st.columns(3)
@@ -556,7 +559,7 @@ else:
                         st.markdown(f'<div class="metric-label">Max Profit</div><div class="metric-value">${verified.get("max_profit", 0):.2f}</div>', unsafe_allow_html=True)
                     with facts_cols[2]:
                         st.markdown(f'<div class="metric-label">Breakeven</div><div class="metric-value">${verified.get("breakeven_price", 0):.2f}</div>', unsafe_allow_html=True)
-                    st.markdown(f"DTE: {verified.get('days_to_expiration', 0)} | Spread: ${verified.get('spread_width', 0):.2f}")
+                    st.markdown(f"DTE: {verified.get('days_to_expiration', 0)} | Expiration: {verified.get('expiration', 'n/a')} | Spread: ${verified.get('spread_width', 0):.2f}")
                 
                 # Show adversarial arguments
                 st.write("")
