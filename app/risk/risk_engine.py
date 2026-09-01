@@ -66,21 +66,36 @@ class RiskEngine:
 
         checks: list[RiskCheckResult] = []
 
+        # Use VERIFIED economics if available, otherwise fall back to LLM-generated
+        # Verified values are calculated by TradeValidator from actual market data
+        max_loss = proposal.verified_max_loss if proposal.verified_max_loss is not None else proposal.max_loss
+        max_profit = proposal.verified_max_profit if proposal.verified_max_profit is not None else proposal.max_profit
+        
+        # Warn if we had to fall back to unverified values (this should not happen in normal flow)
+        if proposal.verified_max_loss is None:
+            checks.append(
+                RiskCheckResult(
+                    rule="warning_unverified_values",
+                    passed=True,
+                    detail="Using LLM-generated economics (verified values not available)",
+                )
+            )
+
         # Rule 1 — max risk per trade
-        risk_ok = proposal.max_loss <= self.max_risk_per_trade
+        risk_ok = max_loss <= self.max_risk_per_trade
         checks.append(
             RiskCheckResult(
                 rule="max_risk_per_trade",
                 passed=risk_ok,
                 detail=(
-                    f"max_loss=${proposal.max_loss:.2f} vs limit=${self.max_risk_per_trade:.2f}"
+                    f"max_loss=${max_loss:.2f} vs limit=${self.max_risk_per_trade:.2f}"
                 ),
             )
         )
 
         # Rule 2 — max position size (notional exposure, using max_loss * quantity as proxy
         # for capital at risk in this spread; conservative since spreads are defined-risk)
-        position_size = proposal.max_loss * proposal.quantity
+        position_size = max_loss * proposal.quantity
         position_ok = position_size <= self.max_position_size
         checks.append(
             RiskCheckResult(
@@ -105,7 +120,7 @@ class RiskEngine:
         )
 
         # Rule 4 — max daily loss (would this trade's worst case push us over?)
-        projected_loss = self._realized_loss_today + proposal.max_loss
+        projected_loss = self._realized_loss_today + max_loss
         loss_ok = projected_loss <= self.max_daily_loss
         checks.append(
             RiskCheckResult(
@@ -113,19 +128,19 @@ class RiskEngine:
                 passed=loss_ok,
                 detail=(
                     f"realized_loss_today=${self._realized_loss_today:.2f} + "
-                    f"this_trade_max_loss=${proposal.max_loss:.2f} = "
+                    f"this_trade_max_loss=${max_loss:.2f} = "
                     f"${projected_loss:.2f} vs limit=${self.max_daily_loss:.2f}"
                 ),
             )
         )
 
         # Rule 5 — sanity check: max_loss must actually be positive and finite
-        sane = proposal.max_loss > 0 and proposal.max_profit > 0
+        sane = max_loss > 0 and max_profit > 0
         checks.append(
             RiskCheckResult(
                 rule="sane_risk_reward",
                 passed=sane,
-                detail=f"max_loss=${proposal.max_loss:.2f}, max_profit=${proposal.max_profit:.2f}",
+                detail=f"max_loss=${max_loss:.2f}, max_profit=${max_profit:.2f}",
             )
         )
 

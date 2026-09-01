@@ -19,5 +19,13 @@ class ExecutionResult(BaseModel):
     status: ExecutionStatus
     order_id: str | None = None
     filled_avg_price: float | None = None
+    expected_debit: float | None = Field(
+        default=None,
+        description="The verified_net_debit that was expected at time of order submission"
+    )
+    debit_variance: float | None = Field(
+        default=None,
+        description="Actual filled price minus expected debit (variance from plan)"
+    )
     detail: str = Field(default="", description="Error message or extra context if not filled")
     timestamp: datetime = Field(default_factory=datetime.utcnow)

@@ -597,8 +597,40 @@ else:
                 st.write("")
                 if execution.get("order_id"):
                     st.markdown(f"**Order ID:** `{execution['order_id']}`")
-                if execution.get("filled_avg_price") is not None:
-                    st.markdown(f"**Avg Price:** ${execution['filled_avg_price']:.2f}")
+                
+                # Display execution vs. verified economics reconciliation
+                if execution.get("filled_avg_price") is not None and proposal:
+                    filled_price = execution.get("filled_avg_price")
+                    verified_debit = proposal.get("verified_net_debit")
+                    
+                    st.markdown(f"**Filled Avg Price:** ${filled_price:.2f}")
+                    
+                    if verified_debit is not None:
+                        # Show the expected vs actual debit
+                        variance = filled_price - verified_debit
+                        variance_pct = (variance / verified_debit * 100) if verified_debit != 0 else 0
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown(f"**Expected Debit:** ${verified_debit:.2f}")
+                        with col2:
+                            variance_indicator = "✓ Better" if variance < 0 else "⚠ Worse" if variance > 0 else "="
+                            st.markdown(f"**Variance:** {variance_indicator} ${abs(variance):.2f} ({abs(variance_pct):.1f}%)")
+                        
+                        # Recalculate actual P&L based on filled price
+                        spread_width = proposal.get("verified_spread_width", 0)
+                        quantity = proposal.get("quantity", 1)
+                        if spread_width > 0:
+                            actual_max_profit = (spread_width - filled_price) * 100 * quantity
+                            actual_max_loss = filled_price * 100 * quantity
+                            
+                            st.write("")
+                            st.markdown("**Actual Economics at Fill:**")
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.markdown(f"Max Loss: ${actual_max_loss:.0f}")
+                            with col2:
+                                st.markdown(f"Max Profit: ${actual_max_profit:.0f}")
                 detail = execution.get('detail', '')
                 if detail:
                     # Improve readability of error details

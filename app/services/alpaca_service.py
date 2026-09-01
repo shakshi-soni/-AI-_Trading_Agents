@@ -115,11 +115,19 @@ class AlpacaService:
     def poll_order_until_filled(
         self,
         order_id: str,
+        expected_debit: float | None = None,
         poll_seconds: int = 3,
         max_attempts: int = 20,
     ) -> ExecutionResult:
         """
         Poll an order until it fills or reaches a terminal bad state.
+        
+        Args:
+            order_id: Order ID to poll
+            expected_debit: The verified net debit that was expected (for variance tracking)
+            poll_seconds: Seconds to wait between poll attempts
+            max_attempts: Maximum number of poll attempts
+        
         Returns an ExecutionResult regardless of outcome — never raises
         for a normal reject/timeout, only for unexpected API errors.
         """
@@ -133,10 +141,18 @@ class AlpacaService:
                     if getattr(last_order, "filled_avg_price", None) is not None
                     else None
                 )
+                
+                # Calculate variance if we have both expected debit and actual filled price
+                debit_variance = None
+                if filled_price is not None and expected_debit is not None:
+                    debit_variance = filled_price - expected_debit
+                
                 return ExecutionResult(
                     status=ExecutionStatus.FILLED,
                     order_id=str(last_order.id),
                     filled_avg_price=filled_price,
+                    expected_debit=expected_debit,
+                    debit_variance=debit_variance,
                     detail="Order filled.",
                 )
 
@@ -144,6 +160,7 @@ class AlpacaService:
                 return ExecutionResult(
                     status=ExecutionStatus.REJECTED,
                     order_id=str(last_order.id),
+                    expected_debit=expected_debit,
                     detail=f"Order reached terminal state: {last_order.status}",
                 )
 
@@ -152,6 +169,7 @@ class AlpacaService:
         return ExecutionResult(
             status=ExecutionStatus.FAILED,
             order_id=order_id,
+            expected_debit=expected_debit,
             detail=(
                 f"Order did not fill within {max_attempts * poll_seconds}s "
                 f"(last status: {last_order.status if last_order else 'unknown'})"

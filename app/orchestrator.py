@@ -197,6 +197,30 @@ class Orchestrator:
 
         # --- Stage 5: Execution ---
         logger.info(f"[5/5] Submitting order to Alpaca...")
+        
+        # Verify that we have verified economics before execution
+        if trade_proposal.verified_net_debit is None:
+            logger.error("[5/5] CRITICAL: Missing verified_net_debit at execution stage!")
+            execution_result = ExecutionResult(
+                status=ExecutionStatus.FAILED,
+                detail="CRITICAL ERROR: Trade proposal missing verified economics. "
+                       "This indicates a bug in the validation pipeline.",
+            )
+            run_id = self.audit_logger.log_run(
+                market_analysis=market_analysis,
+                trade_proposal=trade_proposal,
+                adversarial_report=adversarial_report,
+                risk_decision=risk_decision,
+                execution_result=execution_result,
+                stop_reason="Execution blocked: missing verified economics",
+            )
+            return PipelineResult(
+                run_id=run_id,
+                stage_reached="execution",
+                executed=False,
+                summary="Execution failed: missing verified economics",
+            )
+        
         try:
             order_id = self.alpaca_service.submit_vertical_spread(
                 long_symbol=trade_proposal.long_symbol,
@@ -204,15 +228,21 @@ class Orchestrator:
                 quantity=trade_proposal.quantity,
             )
             logger.info(f"[5/5] Order submitted: {order_id}")
-            execution_result = self.alpaca_service.poll_order_until_filled(order_id)
+            execution_result = self.alpaca_service.poll_order_until_filled(
+                order_id,
+                expected_debit=trade_proposal.verified_net_debit,
+            )
             logger.info(
                 f"[5/5] Execution result: status={execution_result.status.value}, "
+                f"filled_avg_price=${execution_result.filled_avg_price or 'N/A'}, "
+                f"debit_variance=${execution_result.debit_variance or 'N/A'}, "
                 f"detail={execution_result.detail}"
             )
         except Exception as e:
             logger.error(f"[5/5] Execution failed with exception: {e}", exc_info=True)
             execution_result = ExecutionResult(
                 status=ExecutionStatus.FAILED,
+                expected_debit=trade_proposal.verified_net_debit,
                 detail=f"Execution raised an unexpected error: {e}",
             )
 
