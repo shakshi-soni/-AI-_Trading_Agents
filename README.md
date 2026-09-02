@@ -248,25 +248,6 @@ Any judge can trace: `Market evidence → Trade thesis → Adversarial challenge
 
 ---
 
-## 📊 System Validation
-
-> Fill this in with real numbers only — do not estimate or round up.
-
-```
-Strategy proposals tested        < FILL IN >
-Structurally invalid trades      < FILL IN >
-Adversarial rejections           < FILL IN >
-Risk rejections                  < FILL IN >
-Orders submitted                 < FILL IN >
-Orders filled                    < FILL IN >
-
-Automated tests passing          < FILL IN > / < FILL IN >
-```
-
-Even a modest, real number (e.g. "23 automated tests passing") is stronger evidence than a large invented one.
-
----
-
 ## 📂 Project Structure
 
 ```
