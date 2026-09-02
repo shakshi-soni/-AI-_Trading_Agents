@@ -8,8 +8,6 @@
 
 **🔗 [Launch SENTINEL Live →](https://h9zkctvwtrw6uzqpdyqsjz.streamlit.app/)**
 
-> ⚠️ **TODO before you submit:** replace every `< FILL IN >` placeholder below with your real numbers/screenshots. Judges catch invented statistics fast — an honest small number beats a polished fake one.
-
 ---
 
 ## ⚡ SENTINEL In One Breath
@@ -37,7 +35,7 @@ MARKET ✓  →  STRATEGY ✓  →  ADVERSARY ✓  →  RISK ✓  →  ALPACA �
 | Risk gate | PASS ($175 estimate < $500 max risk) |
 | Execution | **PAPER ORDER FILLED** ✅ |
 
-> **Important implementation detail:** proposed trade economics are calculated *before* execution by the Strategy Agent. Final, authoritative economics come from the actual Alpaca fill and are reconciled against the proposal in the audit record. If a number above still says "proposed," treat it as an estimate — not a settled trade outcome — until it's reconciled against the fill.
+> **Important:** Proposed trade economics are pre-trade estimates. Alpaca execution data is the authoritative source for the actual fill price. SENTINEL currently records the execution result, while full reconciliation between proposed and realized economics remains an MVP limitation.
 
 <img width="1437" height="642" alt="image" src="https://github.com/user-attachments/assets/fc0a557e-2d11-42ba-8071-6b1a55fe46c5" />
 
