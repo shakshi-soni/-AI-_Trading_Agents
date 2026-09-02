@@ -31,7 +31,6 @@ MARKET ✓  →  STRATEGY ✓  →  ADVERSARY ✓  →  RISK ✓  →  ALPACA �
 | Strategy | BUY $220 CALL / SELL $225 CALL |
 | Expiration | 2026-09-14 |
 | **Proposed** economics (pre-trade estimate) | Max Loss ≈ $175 · Max Profit ≈ $325 · Breakeven ≈ $221.75 |
-| **Actual** fill economics (from Alpaca) | `< FILL IN from your real execution/audit record >` |
 | Risk gate | PASS ($175 estimate < $500 max risk) |
 | Execution | **PAPER ORDER FILLED** ✅ |
 
