@@ -40,7 +40,8 @@ MARKET ✓  →  STRATEGY ✓  →  ADVERSARY ✓  →  RISK ✓  →  ALPACA �
 
 > **Important implementation detail:** proposed trade economics are calculated *before* execution by the Strategy Agent. Final, authoritative economics come from the actual Alpaca fill and are reconciled against the proposal in the audit record. If a number above still says "proposed," treat it as an estimate — not a settled trade outcome — until it's reconciled against the fill.
 
-**[📸 Insert your real execution screenshot here]**
+<img width="1437" height="642" alt="image" src="https://github.com/user-attachments/assets/fc0a557e-2d11-42ba-8071-6b1a55fe46c5" />
+
 
 ---
 
