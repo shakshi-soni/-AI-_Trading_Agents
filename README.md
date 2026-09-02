@@ -3,7 +3,6 @@
 **SENTINEL isn't an AI that trades. It's a control protocol that decides whether an AI-generated trade is allowed to reach the broker.**
 
 [![🚀 Live Demo](https://img.shields.io/badge/🚀_Live_Demo-Streamlit-FF4B4B?style=for-the-badge)](https://h9zkctvwtrw6uzqpdyqsjz.streamlit.app/)
-[![💻 GitHub](https://img.shields.io/badge/💻_GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/shakshi-soni/-AI-_Trading_Agents)
 [![Status](https://img.shields.io/badge/Status-Hackathon_MVP-success?style=for-the-badge)]()
 [![Broker](https://img.shields.io/badge/Broker-Alpaca_Paper_Trading-yellow?style=for-the-badge)](https://alpaca.markets/)
 
