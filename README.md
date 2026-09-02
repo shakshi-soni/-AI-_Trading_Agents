@@ -57,7 +57,8 @@ MARKET ✓  STRATEGY ✓  ADVERSARY ✓  RISK ✕ → NO TRADE
 MARKET ✓  STRATEGY ✓  ADVERSARY ✓  RISK ✓ → EXECUTE
 ```
 
-**Example rejected run:** `< FILL IN a real logged example where the adversary or risk engine rejected a trade >`
+**Example rejected run:** <img width="1620" height="779" alt="image" src="https://github.com/user-attachments/assets/7a0e2b19-2c57-48d1-9fb6-c24cc8052292" />
+
 
 ---
 
